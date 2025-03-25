@@ -1,3 +1,4 @@
+ 
 import os
 import logging
 import sys
@@ -8,6 +9,8 @@ from dotenv import load_dotenv
 from features.chunking_stratergy import markdown_chunking, semantic_chunking, sliding_window_chunking
 from typing import List, Optional
 import requests
+import time
+from fastapi import HTTPException
 
 # Load the .env file from project root
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
@@ -40,6 +43,11 @@ AWS_S3_BUCKET = os.getenv("AWS_BUCKET_NAME")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_ENVIRONMENT=os.getenv("PINECONE_ENVIRONMENT")
 
+# Validate environment variables
+# if not all([PINECONE_API_KEY, PINECONE_INDEX_NAME, AWS_S3_BUCKET, OPENAI_API_KEY]):
+#     logger.error("Missing required environment variables.")
+#     raise ValueError("Missing required environment variables.")
+
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -65,8 +73,8 @@ def connect_to_pinecone_index():
                     "model": "text-embedding-3-small"
                 }
             )
-        else:
-            logger.info(f"Using existing Pinecone index: {PINECONE_INDEX_NAME}")
+            logger.info("Waiting for index to be ready...")
+            time.sleep(10)  # Wait for index to be ready
             
         index = pc.Index(PINECONE_INDEX_NAME)
         return index
@@ -110,12 +118,23 @@ def create_pinecone_vector_store(file, chunks, chunk_strategy):
 
     vectors = []
     file_parts = file.split('/')
-    parser = file_parts[1] if len(file_parts) > 1 else "unknown"
-    identifier = file_parts[2] if len(file_parts) > 2 else file_parts[-1]
-    year = identifier[15:19] if len(identifier) > 19 else "unknown"
-    quarter = identifier[20:22] if len(identifier) > 22 else "unknown"
+    
+    # Handle both test documents and actual NVIDIA reports
+    if len(file_parts) > 2:
+        # For actual NVIDIA reports
+        parser = file_parts[1]
+        identifier = file_parts[2]
+        year = identifier[15:19] if len(identifier) > 19 else "unknown"
+        quarter = identifier[20:22] if len(identifier) > 22 else "unknown"
+    else:
+        # For test documents
+        parser = "mistral"  # Use mistral as default parser for test documents
+        year = "test"
+        quarter = "test"
+    
     records = 0
-    namespace = f"{parser}_{chunk_strategy}"
+    # Ensure consistent namespace naming
+    namespace = f"{parser}_{chunk_strategy.lower()}"  # Convert to lowercase for consistency
 
     logger.info(f"Processing {len(chunks)} chunks for {file}")
     logger.info(f"Using namespace: {namespace}")
@@ -139,7 +158,7 @@ def create_pinecone_vector_store(file, chunks, chunk_strategy):
                     "quarter": quarter,
                     "text": chunk,
                     "parser": parser,
-                    "strategy": chunk_strategy
+                    "strategy": chunk_strategy.lower()  # Store lowercase strategy name
                 }  # Metadata
             ))
             
@@ -171,56 +190,120 @@ def create_pinecone_vector_store(file, chunks, chunk_strategy):
     return records
 
 def query_pinecone(
+    file: str,
     parser: str,
     chunking_strategy: str,
     query: str,
-    year: Optional[str] = None,
-    quarter: Optional[List[str]] = None,
-    top_k: int = 5
+    top_k: int = 5  # Default to 5 chunks
 ) -> List[str]:
     """Query Pinecone index with filters"""
     try:
         # Get query embedding
         logger.info(f"Generating embedding for query: {query}")
         query_embedding = get_embedding(query)
+        logger.info(f"Generated query embedding of size {len(query_embedding)}")
         
         # Connect to index
         index = connect_to_pinecone_index()
         if not index:
+            logger.error("Failed to connect to Pinecone index")
             return []
             
         # Use the same namespace format as in create_pinecone_vector_store
-        namespace = f"{parser}_{chunking_strategy}"
+        namespace = f"{parser}_{chunking_strategy.lower()}"  # Convert to lowercase for consistency
         logger.info(f"Querying namespace: {namespace}")
         
-        # Prepare filter
-        filter_dict = {}
-        if year:
-            filter_dict["year"] = year
-        if quarter:
-            filter_dict["quarter"] = {"$in": quarter}
+        # Query index with lower similarity threshold
+        try:
+            logger.info("Executing Pinecone query...")
+            results = index.query(
+                vector=query_embedding,
+                namespace=namespace,
+                top_k=top_k,  # Limit to top_k most relevant chunks
+                include_metadata=True,
+                min_score=0.0  # Lower the similarity threshold
+            )
             
-        logger.info(f"Using filter: {filter_dict}")
-        
-        # Query index
-        results = index.query(
-            vector=query_embedding,
-            namespace=namespace,
-            filter=filter_dict if filter_dict else None,
-            top_k=top_k,
-            include_metadata=True
-        )
-        
-        # Log results for debugging
-        logger.info(f"Query returned {len(results.matches)} matches")
-        for match in results.matches:
-            logger.info(f"Match score: {match.score}, Metadata: {match.metadata}")
-        
-        # Extract and return text from matches
-        return [match.metadata["text"] for match in results.matches]
+            # Log results for debugging
+            logger.info(f"Query returned {len(results.matches)} matches")
+            for match in results.matches:
+                logger.info(f"Match score: {match.score}")
+                if hasattr(match, 'metadata') and match.metadata:
+                    logger.info(f"Match metadata: {match.metadata}")
+                else:
+                    logger.warning("Match has no metadata")
+            
+            # Extract and return text from matches
+            texts = []
+            for match in results.matches:
+                if hasattr(match, 'metadata') and match.metadata and 'text' in match.metadata:
+                    texts.append(match.metadata['text'])
+                else:
+                    logger.warning(f"Match missing text in metadata: {match}")
+            
+            logger.info(f"Returning {len(texts)} text chunks")
+            return texts
+            
+        except Exception as e:
+            logger.error(f"Error during Pinecone query: {str(e)}")
+            logger.error(f"Query parameters: namespace={namespace}, top_k={top_k}")
+            return []
+            
     except Exception as e:
-        logger.error(f"Error querying Pinecone: {str(e)}")
+        logger.error(f"Error in query_pinecone: {str(e)}")
+        logger.error(f"Full error details: {str(e)}")
         return []
+
+def generate_openai_message(chunks, year, quarter, query):
+    # Limit the number of chunks to avoid token limit errors
+    max_chunks = 5  # Limit to top 5 most relevant chunks
+    chunks = chunks[:max_chunks]
+    
+    prompt = f"""
+    Below are relevant excerpts from a NVDIA quarterly financial report for year {year} and quarter {quarter} that may help answer the query.
+
+    --- User Query ---
+    {query}
+
+    --- Relevant Document Chunks ---
+    {chr(10).join([f'Chunk {i+1}: {chunk}' for i, chunk in enumerate(chunks)])}
+
+    Based on the provided document chunks, generate a comprehensive response to the query. If needed, synthesize the information and ensure clarity.
+    """
+    return prompt
+
+def generate_openai_message_document(query, chunks):
+    # Limit the number of chunks to avoid token limit errors
+    max_chunks = 5  # Limit to top 5 most relevant chunks
+    chunks = chunks[:max_chunks]
+    
+    prompt = f"""
+    Below are relevant excerpts from a document uploaded by the user that may help answer the user query.
+
+    --- User Query ---
+    {query}
+
+    --- Relevant Document Chunks ---
+    {chr(10).join([f'Chunk {i+1}: {chunk}' for i, chunk in enumerate(chunks)])}
+
+    Based on the provided document chunks, generate a comprehensive response to the query. If needed, synthesize the information and ensure clarity.
+    """
+    return prompt
+
+def generate_model_response(message):
+    try:
+        client = OpenAI()
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a helpful AI assistant. You are given excerpts from NVDIA's quarterly financial report. Use them to answer the user query."},
+                {"role": "user", "content": message}
+            ],
+            max_tokens=2048
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating response from OpenAI Model: {str(e)}")
 
 def main():
     """Main function to process markdown files and store them in Pinecone."""
