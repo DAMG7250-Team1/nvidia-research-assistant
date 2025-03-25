@@ -6,6 +6,12 @@ __pycache__/
 .Python
 venv/
 ENV/
+awscli-env/
+env/
+.env/
+.venv/
+env.bak/
+venv.bak/
 
 # macOS
 .DS_Store
@@ -31,3 +37,23 @@ htmlcov/
 .cache
 coverage.xml
 *.cover
+
+# Environment variables and secrets
+.env
+.env.*
+*.env
+secrets.json
+credentials.json
+
+# Logs
+*.log
+logs/
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.env/
+.venv/
+env.bak/
+venv.bak/
