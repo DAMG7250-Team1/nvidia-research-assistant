@@ -40,11 +40,6 @@ AWS_S3_BUCKET = os.getenv("AWS_BUCKET_NAME")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_ENVIRONMENT=os.getenv("PINECONE_ENVIRONMENT")
 
-# Validate environment variables
-# if not all([PINECONE_API_KEY, PINECONE_INDEX_NAME, AWS_S3_BUCKET, OPENAI_API_KEY]):
-#     logger.error("Missing required environment variables.")
-#     raise ValueError("Missing required environment variables.")
-
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 

@@ -7,7 +7,7 @@ from PIL import Image
 from mistralai import Mistral
 from mistralai import DocumentURLChunk
 from mistralai.models import OCRResponse
-from backend.core.s3_client import S3FileManager
+from core.s3_client import S3FileManager
 
 # Load environment variables
 load_dotenv()
