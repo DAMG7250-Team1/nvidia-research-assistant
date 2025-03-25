@@ -1,5 +1,3 @@
-
-
 import os
 import sys
 from pathlib import Path
@@ -125,12 +123,12 @@ async def query_nvdia_documents(request: NVDIARequest):
         top_k = 10
 
         # Construct the S3 path for the NVIDIA document
-        base_path = "nvidia-reports"
+        base_path = "nvidia-reports"  # This is the correct path in S3
         print(f"Using base path: {base_path}")
         s3_obj = S3FileManager(AWS_BUCKET_NAME, base_path)
         
         # Get the PDF content from S3 and process it with Mistral
-        pdf_filename = f"nvidia_raw_pdf_{year}_{quarter[0]}.pdf"  # Fixed format to match actual file
+        pdf_filename = f"nvidia_raw_pdf_{year}_{quarter[0]}.pdf"  # Keep the Q prefix
         print(f"Attempting to load PDF from: {base_path}/{pdf_filename}")
         pdf_content = s3_obj.load_s3_pdf(pdf_filename)
         if not pdf_content:
@@ -153,10 +151,9 @@ async def query_nvdia_documents(request: NVDIARequest):
 
         if vector_store == "pinecone":
             # Create vector store and query
-            file_name = f"{year}_{quarter[0]}"
+            file_name = f"{year}_{quarter[0]}"  # Keep the Q prefix here too
             print(f"Creating Pinecone vector store for file: {file_name}")
-            records = create_pinecone_vector_store(file_name, chunks, chunk_strategy)
-            print(f"Created vector store with {records} records")
+            create_pinecone_vector_store(file_name, chunks, chunk_strategy)
             
             # Query using the same namespace format
             print(f"Querying Pinecone with namespace format: {parser}_{chunk_strategy}")

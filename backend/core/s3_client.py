@@ -18,7 +18,7 @@ class S3FileManager:
     def get_full_path(self, filename: str) -> str:
         """Get full S3 path by combining base_path and filename"""
         if self.base_path:
-            return f"{self.base_path.rstrip('/')}/{filename.lstrip('/')}"
+            return f"{self.base_path}/{filename}"  # Ensure proper path joining
         return filename
 
     def list_files(self) -> List[str]:
