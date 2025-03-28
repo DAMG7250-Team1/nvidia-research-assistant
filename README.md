@@ -1,50 +1,108 @@
 # NVIDIA Research Assistant
 
-A powerful RAG (Retrieval Augmented Generation) system for analyzing NVIDIA's quarterly earnings reports and financial documents.
+A comprehensive research assistant that analyzes NVIDIA's quarterly reports and historical data using RAG (Retrieval-Augmented Generation), Snowflake data, and web search capabilities.
 
 ## Features
 
-- **Document Processing**: Efficiently processes NVIDIA's quarterly earnings reports and financial documents
-- **Multiple Chunking Strategies**: Supports various text chunking methods:
-  - Markdown-based chunking
-  - Semantic chunking
-  - Sliding window chunking
-- **Vector Storage**: Uses Pinecone for efficient vector storage and retrieval
-- **Advanced Querying**: Natural language queries with context-aware responses
-- **Multiple Parser Support**: Currently supports Mistral parser for document processing
+- 📊 Historical Financial Data Analysis (Snowflake)
+- 📚 Quarterly Reports Analysis (Pinecone RAG)
+- 🌐 Real-time Web Data Search
+- 🔄 Combined Analysis Mode
+- 📈 Interactive Visualizations
+- 🔍 Multiple Chunking Strategies
 
-## Setup
+## Prerequisites
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Set up environment variables in `.env`:
-   ```
-   MISTRAL_API_KEY=your_mistral_api_key
-   OPENAI_API_KEY=your_openai_api_key
-   PINECONE_API_KEY=your_pinecone_api_key
-   AWS_ACCESS_KEY_ID=your_aws_access_key
-   AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-   AWS_BUCKET_NAME=your_bucket_name
-   ```
+- Python 3.8+
+- AWS Account with S3 access
+- Pinecone Account
+- OpenAI API Key
+- Snowflake Account
+
+## Environment Variables
+
+Create a `.env` file in the root directory with the following variables:
+
+```env
+# AWS Configuration
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=us-east-1
+AWS_S3_BUCKET=nvidia-research
+
+# Pinecone Configuration
+PINECONE_API_KEY=your_pinecone_key
+PINECONE_ENVIRONMENT=your_environment
+PINECONE_INDEX_NAME=nvidia-rag-pipeline
+
+# OpenAI Configuration
+OPENAI_API_KEY=your_openai_key
+
+# FastAPI Configuration
+FASTAPI_URL=http://localhost:8000
+```
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/nvidia-research-assistant.git
+cd nvidia-research-assistant
+```
+
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Download required NLTK data:
+```python
+python -c "import nltk; nltk.download('punkt')"
+```
+
+## Running the Application
+
+1. Start the FastAPI backend:
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+2. Start the Streamlit frontend:
+```bash
+cd frontend
+streamlit run app.py
+```
+
+3. Open your browser and navigate to:
+```
+http://localhost:8501
+```
 
 ## Usage
 
-1. Start the backend server:
-   ```bash
-   cd backend
-   python main.py
-   ```
+1. Select the research mode:
+   - Pinecone (Quarterly Reports)
+   - Snowflake (Financial Data)
+   - Web Search (Real-time Data)
+   - Combined Analysis
 
-2. Start the frontend:
-   ```bash
-   cd frontend
-   streamlit run app.py
-   ```
+2. Choose the year and quarter for analysis
 
-3. Access the application at `http://localhost:8501`
+3. For Pinecone and Combined modes, select a chunking strategy:
+   - Markdown
+   - Semantic
+   - Sliding Window
+
+4. Enter your research question
+
+5. Click "Generate Research Report"
 
 ## Project Structure
 
@@ -52,21 +110,29 @@ A powerful RAG (Retrieval Augmented Generation) system for analyzing NVIDIA's qu
 nvidia-research-assistant/
 ├── backend/
 │   ├── agents/
-│   │   └── rag_agent.py
+│   │   ├── rag_agent.py
+│   │   ├── snowflake_agent.py
+│   │   └── web_agent.py
 │   ├── core/
-│   │   └── s3_client.py
-│   ├── features/
-│   │   └── mistral_parser.py
+│   │   ├── s3_client.py
+│   │   └── text_chunking.py
+│   ├── config/
+│   │   └── rag_config.py
 │   └── main.py
 ├── frontend/
 │   └── app.py
-└── requirements.txt
+├── requirements.txt
+└── README.md
 ```
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch
+2. Create a feature branch
 3. Commit your changes
 4. Push to the branch
-5. Create a new Pull Request
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

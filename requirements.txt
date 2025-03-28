@@ -1,19 +1,53 @@
-pydantic
+# Core dependencies
 fastapi
 uvicorn
-requests
-asyncio
-tiktoken
-python-dotenv
-boto3
-pandas
-numpy
-spacy
-mistralai
-openai
-webdriver-manager
-selenium
-pinecone
-chromadb
-scikit-learn
 streamlit
+python-dotenv
+pydantic
+requests
+
+# AWS and S3
+boto3
+PyPDF2
+
+# Vector store and embeddings
+pinecone-client
+openai
+tiktoken
+
+# Data processing and visualization
+pandas
+matplotlib
+seaborn
+numpy
+
+# NLP and text processing
+spacy
+nltk
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.4.0/en_core_web_sm-3.4.0-py3-none-any.whl
+
+# Database
+snowflake-connector-python
+
+# Web scraping and API
+beautifulsoup4
+selenium
+yahooquery
+tavily-python
+
+# Langchain / LangGraph
+langchain
+langchain-openai
+langgraph
+
+# Utilities
+python-multipart
+aiohttp
+tqdm
+
+# Testing and Development
+pytest
+black
+flake8
+isort
+yfinance 

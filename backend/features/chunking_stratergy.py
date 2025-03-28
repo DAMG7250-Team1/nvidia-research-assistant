@@ -2,9 +2,13 @@ import re
 import spacy
 import spacy.cli
 import tiktoken
+from typing import List
+import logging
 
 TOKEN_LIMIT = 8192  # OpenAI's embedding model limit
 SUB_CHUNK_SIZE = 2000  # Safe sub-chunk size to avoid exceeding limits
+
+logger = logging.getLogger(__name__)
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -32,23 +36,60 @@ def split_chunk(chunk, max_tokens=SUB_CHUNK_SIZE):
     
     return sub_chunks
 
-def markdown_chunking(markdown_text, heading_level=2):
-    pattern = rf'(?=^{"#" * heading_level} )'  # Regex to match specified heading level
-    # chunks = re.split(pattern, markdown_text, flags=re.MULTILINE)
-    raw_chunks = re.split(pattern, markdown_text, flags=re.MULTILINE)
+def markdown_chunking(text: str, heading_level: int = 2) -> List[str]:
+    """
+    Split markdown text into chunks based on headings.
     
-    chunks = []
-    for chunk in raw_chunks:
-        chunk = chunk.strip()
-        if not chunk:
-            continue
+    Args:
+        text (str): The markdown text to split
+        heading_level (int): The heading level to split on (1-6)
         
-        # Ensure the chunk is within token limits
-        chunks.extend(split_chunk(chunk, max_tokens=TOKEN_LIMIT // 2))  # Split large chunks
-    
-    return chunks
-    
-    # return [chunk.strip() for chunk in chunks if chunk.strip()]
+    Returns:
+        List[str]: List of text chunks
+    """
+    try:
+        # Validate input
+        if text is None:
+            logger.warning("Input text is None")
+            return []
+            
+        # Validate heading level
+        if not 1 <= heading_level <= 6:
+            raise ValueError("Heading level must be between 1 and 6")
+        
+        # Create regex patterns for both markdown and plain text headings
+        markdown_pattern = f"^#{{{heading_level}}}\\s+(.+)$"
+        plain_text_pattern = r"^([A-Z][A-Z\s]+)$"  # Matches all-caps lines
+        
+        # Split text into sections based on headings
+        sections = re.split(f"({markdown_pattern}|{plain_text_pattern})", text, flags=re.MULTILINE)
+        
+        # Process sections
+        chunks = []
+        current_heading = None
+        
+        for i, section in enumerate(sections):
+            if section is None:
+                continue
+                
+            if i % 2 == 0:  # This is the content
+                if current_heading and section and section.strip():
+                    # Add heading to content
+                    chunk = f"## {current_heading}\n\n{section.strip()}"
+                    chunks.append(chunk)
+            else:  # This is the heading
+                current_heading = section.strip() if section else None
+                # Remove any markdown # characters from the heading
+                if current_heading:
+                    current_heading = re.sub(r'^#+\s*', '', current_heading)
+        
+        logger.info(f"Split text into {len(chunks)} chunks using markdown headings")
+        return chunks
+        
+    except Exception as e:
+        logger.error(f"Error in markdown_chunking: {str(e)}")
+        logger.error("Full error details:", exc_info=True)
+        return []
 
 def semantic_chunking(text, max_sentences=5):
     doc = nlp(text)

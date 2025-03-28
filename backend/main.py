@@ -1,6 +1,9 @@
 import os
 import sys
 from pathlib import Path
+import boto3
+from datetime import datetime
+import logging
 
 # Add parent directory to Python path
 parent_dir = str(Path(__file__).parent.parent)
@@ -10,25 +13,62 @@ if parent_dir not in sys.path:
 import asyncio
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from backend.features.chunking_stratergy import markdown_chunking, semantic_chunking, sliding_window_chunking
 from backend.features.mistral_parser import pdf_mistralocr_converter
 from backend.core.s3_client import S3FileManager
 from backend.agents.rag_agent import (
-    create_pinecone_vector_store, 
-    query_pinecone, 
-    generate_openai_message, 
-    generate_model_response,
-    generate_openai_message_document
+    AgenticResearchAssistant,
+    create_pinecone_vector_store
 )
+from backend.agents.snowflake_agent import query_snowflake, generate_chart, get_nvidia_historical
+from langgraph.graph import StateGraph, END
+from agents.web_agent import NVIDIAWebSearchAgent
+from backend.langgraph.research_graph import run_research_graph, initialize_research_graph
+from backend.langgraph.state import ResearchRequest
 
 from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Constants
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_FILE_INDEX = os.getenv("PINECONE_INDEX_NAME")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+
+# Validate required environment variables
+required_vars = {
+    "PINECONE_API_KEY": PINECONE_API_KEY,
+    "PINECONE_INDEX_NAME": PINECONE_FILE_INDEX,
+    "OPENAI_API_KEY": OPENAI_API_KEY,
+    "AWS_BUCKET_NAME": AWS_BUCKET_NAME,
+    "MISTRAL_API_KEY": MISTRAL_API_KEY,
+    "SERPAPI_API_KEY": SERPAPI_API_KEY,
+    "TAVILY_API_KEY": TAVILY_API_KEY
+}
+
+missing_vars = [var for var, value in required_vars.items() if not value]
+if missing_vars:
+    raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+client = OpenAI()
+
+# Initialize global graph
+_GLOBAL_GRAPH = None
 
 class NVDIARequest(BaseModel):
     year: str
@@ -38,6 +78,22 @@ class NVDIARequest(BaseModel):
     vector_store: str = "pinecone"  # Default to pinecone
     query: str
 
+class SnowflakeRequest(BaseModel):
+    year: str
+    quarter: str
+    metric: str = "MARKETCAP"  # Default to MARKETCAP
+    chart_type: str = "line"  # Chart type: line or bar
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "year": "2023",
+                "quarter": "Q1",
+                "metric": "MARKETCAP",
+                "chart_type": "line"
+            }
+        }
+
 class DocumentQueryRequest(BaseModel):
     parser: str = "mistral"  # Default to mistral parser
     chunk_strategy: str
@@ -46,18 +102,43 @@ class DocumentQueryRequest(BaseModel):
     markdown_content: str
     query: str
     
+class ResearchRequest(BaseModel):
+    query: str
+    year: int
+    quarter: str
+    agent_type: str = "combined"
+    metadata_filters: Optional[Dict[str, Any]] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "What were Nvidia's breakthroughs in Q3 2022?",
+                "year": 2022,
+                "quarter": "Q3",
+                "agent_type": "combined",
+                "metadata_filters": None
+            }
+        }
+
 app = FastAPI()
 
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_FILE_INDEX = os.getenv("PINECONE_FILE_INDEX")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
-client = OpenAI()
+# Mount the charts directory for static file serving
+charts_dir = os.path.join(os.path.dirname(__file__), "charts")
+os.makedirs(charts_dir, exist_ok=True)
+app.mount("/charts", StaticFiles(directory=charts_dir), name="charts")
 
 @app.get("/")
-def read_root():
-    return {"message": "NVDIA Financial Reports Analysis: FastAPI Backend with OpenAI Integration available for user queries..."}
+async def root():
+    return {"message": "NVIDIA Research Assistant API"}
 
 @app.post("/query_document")
 async def query_document(request: DocumentQueryRequest):
@@ -111,78 +192,80 @@ async def query_document(request: DocumentQueryRequest):
         print(f"Error in query_document: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error answering question: {str(e)}")
 
+@app.post("/research")
+async def research(request: ResearchRequest):
+    """Execute research workflow"""
+    try:
+        global _GLOBAL_GRAPH
+        
+        # Initialize research graph if not already initialized
+        if _GLOBAL_GRAPH is None:
+            logger.info("Initializing research graph...")
+            _GLOBAL_GRAPH = initialize_research_graph()
+        
+        # Run research workflow
+        result = await run_research_graph(
+            query=request.query,
+            year=request.year,
+            quarter=request.quarter,
+            agent_type=request.agent_type,
+            metadata_filters=request.metadata_filters
+        )
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+            
+        return result["data"]
+        
+    except Exception as e:
+        logger.error(f"Error in research endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/query_snowflake")
+async def query_snowflake_data(request: SnowflakeRequest):
+    """
+    Endpoint for direct Snowflake queries (for backward compatibility).
+    """
+    try:
+        summary, chart_path = get_nvidia_historical(
+            year=request.year,
+            quarter=request.quarter,
+            metric=request.metric,
+            chart_type=request.chart_type
+        )
+        
+        return {
+            "answer": f"{summary}\n\nChart saved as {chart_path}"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching Snowflake data: {str(e)}"
+        )
+
 @app.post("/query_nvdia_documents")
 async def query_nvdia_documents(request: NVDIARequest):
+    """
+    Endpoint for direct Pinecone queries (for backward compatibility).
+    """
     try:
-        year = request.year
-        quarter = request.quarter
-        parser = request.parser
-        chunk_strategy = request.chunk_strategy
-        query = request.query
-        vector_store = request.vector_store
-        top_k = 10
-
-        # Construct the S3 path for the NVIDIA document
-        base_path = "nvidia-reports"  # This is the correct path in S3
-        print(f"Using base path: {base_path}")
-        s3_obj = S3FileManager(AWS_BUCKET_NAME, base_path)
+        research_assistant = AgenticResearchAssistant()
+        result = research_assistant.search_pinecone_db(
+            query=request.query,
+            year_quarter_dict={
+                "year": request.year,
+                "quarter": request.quarter[0]  # Take first quarter if list
+            }
+        )
         
-        # Get the PDF content from S3 and process it with Mistral
-        pdf_filename = f"nvidia_raw_pdf_{year}_{quarter[0]}.pdf"  # Keep the Q prefix
-        print(f"Attempting to load PDF from: {base_path}/{pdf_filename}")
-        pdf_content = s3_obj.load_s3_pdf(pdf_filename)
-        if not pdf_content:
-            raise HTTPException(status_code=404, detail=f"NVIDIA report for {year} {quarter[0]} not found at {base_path}/{pdf_filename}")
-        print(f"Successfully loaded PDF, size: {len(pdf_content)} bytes")
-
-        # Process the PDF with Mistral OCR
-        print("Starting Mistral OCR processing...")
-        try:
-            md_file_name, markdown_content = pdf_mistralocr_converter(pdf_content, base_path, s3_obj)
-            print(f"Successfully processed PDF with Mistral OCR, markdown size: {len(markdown_content)} bytes")
-        except Exception as e:
-            print(f"Error during Mistral OCR processing: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing PDF with Mistral OCR: {str(e)}")
+        return {"answer": result}
         
-        # Generate chunks using the specified strategy
-        print(f"Generating chunks using {chunk_strategy} strategy...")
-        chunks = generate_chunks(markdown_content, chunk_strategy)
-        print(f"Generated {len(chunks)} chunks using {chunk_strategy} strategy")
-
-        if vector_store == "pinecone":
-            # Create vector store and query
-            file_name = f"{year}_{quarter[0]}"  # Keep the Q prefix here too
-            print(f"Creating Pinecone vector store for file: {file_name}")
-            create_pinecone_vector_store(file_name, chunks, chunk_strategy)
-            
-            # Query using the same namespace format
-            print(f"Querying Pinecone with namespace format: {parser}_{chunk_strategy}")
-            result_chunks = query_pinecone(
-                file=file_name,
-                parser=parser,
-                chunking_strategy=chunk_strategy,
-                query=query,
-                top_k=top_k
-            )
-            
-            if len(result_chunks) == 0:
-                raise HTTPException(status_code=500, detail="No relevant data found in the document")
-            print(f"Found {len(result_chunks)} relevant chunks")
-            
-            # Generate response using OpenAI
-            print("Generating OpenAI response...")
-            message = generate_openai_message(result_chunks, year, quarter, query)
-            answer = generate_model_response(message)
-            print("Successfully generated response")
-            
-        else:
-            raise HTTPException(status_code=400, detail="Only Pinecone vector store is currently supported for NVIDIA documents")
-
-        return {"answer": answer}
-    
     except Exception as e:
-        print(f"Error in query_nvdia_documents: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error answering question: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error searching documents: {str(e)}"
+        )
 
 def generate_chunks(markdown_content, chunk_strategy):
     """Generate chunks from markdown content using the specified strategy."""
@@ -206,4 +289,5 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
+
 
