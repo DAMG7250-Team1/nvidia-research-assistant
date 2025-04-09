@@ -21,10 +21,6 @@ matplotlib
 seaborn
 numpy
 
-# NLP and text processing
-spacy
-nltk
-en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.4.0/en_core_web_sm-3.4.0-py3-none-any.whl
 
 # Database
 snowflake-connector-python
@@ -44,10 +40,8 @@ langgraph
 python-multipart
 aiohttp
 tqdm
-
+spacy==3.7.4  # Compatible with thinc
+thinc==8.2.3
+setuptools==68.2.2
 # Testing and Development
-pytest
-black
-flake8
-isort
 yfinance 
