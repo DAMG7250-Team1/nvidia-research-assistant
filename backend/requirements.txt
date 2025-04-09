@@ -1,0 +1,51 @@
+
+
+
+
+# Core dependencies
+fastapi
+uvicorn
+streamlit
+python-dotenv
+pydantic
+requests
+mistralai>=0.0.11
+# AWS and S3
+boto3
+PyPDF2
+
+# Vector store and embeddings
+pinecone
+openai
+tiktoken
+
+# Data processing and visualization
+pandas
+seaborn
+numpy==1.26.4
+
+
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl
+
+# Database
+snowflake-connector-python
+
+pyarrow==18.1.0
+# Web scraping and API
+beautifulsoup4
+
+yahooquery
+tavily-python
+
+# Langchain / LangGraph
+langchain==0.1.16
+langchain-openai==0.0.2
+langgraph==0.0.40
+
+
+# Testing and Development
+
+yfinance 
+boto3==1.34.74
+kiwisolver==1.4.5
+matplotlib==3.8.4
