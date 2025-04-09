@@ -111,7 +111,7 @@ import io
 load_dotenv()
 
 # Constants
-FASTAPI_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://34.48.155.56:8000/")
 
 # Page config
 st.set_page_config(
